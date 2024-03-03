@@ -1,0 +1,12 @@
+server:
+  port: 9095
+  servlet:
+    context-path: /transform-poc
+spring:
+  application:
+    name: transform-poc
+    description: This service receives the workflow context that has the payload and workflow definition. then it processes the payload as per the defined flow.
+
+logging:
+  level:
+    root: ${APPLICATION_LOG_LEVEL:INFO}
