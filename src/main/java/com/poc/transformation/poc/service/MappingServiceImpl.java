@@ -182,7 +182,6 @@ public class MappingServiceImpl implements MappingService{
                             int finalI = i;
                             String currentListValue = listKey + ".*";
                             String replacementValue = listKey + "." + finalI;
-                            JsonNode finalListNode = listNode;
                             arrayElement.fields().forEachRemaining(elementEntry -> {
                                 String elementKey = elementEntry.getKey();
                                 JsonNode elementValue = elementEntry.getValue();
@@ -229,6 +228,9 @@ public class MappingServiceImpl implements MappingService{
     }
 
     private String resolvePlaceholder(String placeholder, JsonNode sourceJson) {
+        if (placeholder.contains("*")){
+            placeholder = placeholder.replace("*", "0");
+        }
         String[] pathSegments = placeholder.substring(3, placeholder.length() - 2).split("\\.");
         log.info("placeholder: {}", placeholder);
         JsonNode currentNode = sourceJson;
