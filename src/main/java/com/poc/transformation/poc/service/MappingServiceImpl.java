@@ -27,7 +27,6 @@ public class MappingServiceImpl implements MappingService{
         log.info("Initial data: {}", testModel);
         JsonNode finalJson = transform(testModel.getSourceJson(), testModel.getDestinationJsonTemplate());
         return Mono.just(finalJson);
-//        return Mono.just((JsonNode)handleArrayNode((ArrayNode) testModel.getDestinationJsonTemplate().get("pdetails"), testModel.getSourceJson()));
     }
 
     private JsonNode transform(JsonNode sourceJson, JsonNode destinationTemplate) {
@@ -96,30 +95,61 @@ public class MappingServiceImpl implements MappingService{
                     }
                 }
             }
+            log.info("listkey: {}", listKey);
 
-            if (listKey == null) {
-                log.error("List key not found in array node entry: {}", arrayElement);
-                return; // Skip processing this array node entry if list key is not found
-            }
+            ObjectNode processedNode = objectMapper.createObjectNode();
 
-            JsonNode listNode = sourceJson.get(listKey); // Fetching the list node from source JSON
+            if (listKey != null) {
+                // If list key is found, proceed with fetching the list node from source JSON
+                String[] keys = listKey.split("\\.");
+                log.info("keys: {}", keys);
+                JsonNode listNode = sourceJson;
 
-            if (listNode == null || !listNode.isArray()) {
-                log.error("List node '{}' not found or is not an array in the source JSON.", listKey);
-                return; // Skip processing this array node entry if list node not found or is not an array
-            }
-
-            int listSize = listNode.size();
-            for (int i = 0; i < listSize; i++) {
-                ObjectNode processedNode = objectMapper.createObjectNode();
-                int finalI = i;
+                for (final String key : keys) {
+                    // This conditional block checks if the next path segment is an array index
+                    if (key.matches("^-?\\d+$")) {
+                        log.info("current index listNode: {}", key);
+                        listNode = getListValue(listNode, key);
+                    } else {
+                        log.info("current listNode: {}", listNode);
+                        listNode = listNode.findPath(key);
+                    }
+//                    if (listNode.isMissingNode()) {
+//                        log.debug("listNode not found: {}", key);
+//                        return new TextNode(key);            }
+                }
+                if (listNode != null && listNode.isArray()) {
+                    int listSize = listNode.size();
+                    for (int i = 0; i < listSize; i++) {
+                        ObjectNode tempNode = objectMapper.createObjectNode();
+                        int finalI = i;
+                        String currentListValue = listKey + ".*";
+                        String replacementValue = listKey + "." + finalI;
+                        JsonNode finalListNode = listNode;
+                        arrayElement.fields().forEachRemaining(elementEntry -> {
+                            String elementKey = elementEntry.getKey();
+                            JsonNode elementValue = elementEntry.getValue();
+                            if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
+                                JsonNode resolvedValue = resolvePlaceholder(elementValue.asText().replace(currentListValue, replacementValue), finalListNode.get(finalI));
+                                tempNode.put(elementKey, resolvedValue);
+                            } else if (elementValue.isArray()) {
+                                tempNode.set(elementKey, handleArrayNode((ArrayNode) elementValue, sourceJson));
+                            } else {
+                                tempNode.set(elementKey, elementValue);
+                            }
+                        });
+                        resultArray.add(tempNode);
+                    }
+                } else {
+                    log.error("List node '{}' not found or is not an array in the source JSON.", listKey);
+                }
+            } else {
+                // If list key is null, directly replace placeholders with values from the source JSON
                 arrayElement.fields().forEachRemaining(elementEntry -> {
                     String elementKey = elementEntry.getKey();
                     JsonNode elementValue = elementEntry.getValue();
-                    log.info("element value: {}", elementValue);
                     if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                        String resolvedValue = resolvePlaceholder(elementValue.asText().replace("*", String.valueOf(finalI)), sourceJson);
-                       log.info("resolved value: {}", resolvedValue);
+                        JsonNode resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
                         processedNode.put(elementKey, resolvedValue);
                     } else {
                         processedNode.set(elementKey, elementValue);
@@ -132,12 +162,11 @@ public class MappingServiceImpl implements MappingService{
         return resultArray;
     }
 
-
     private boolean isPlaceholder(String text) {
         return text.startsWith("{{") && text.endsWith("}}");
     }
 
-    private String resolvePlaceholder(String placeholder, JsonNode sourceJson) {
+    private JsonNode resolvePlaceholder(String placeholder, JsonNode sourceJson) {
         String[] pathSegments = placeholder.substring(3, placeholder.length() - 2).split("\\.");
         log.info("placeholder: {}", placeholder);
         JsonNode currentNode = sourceJson;
@@ -153,11 +182,10 @@ public class MappingServiceImpl implements MappingService{
             }
             if (currentNode.isMissingNode()) {
                 log.debug("Node not found: {}", pathSegment);
-                return placeholder;
-            }
+                return new TextNode(placeholder );            }
         }
 
-        return currentNode.asText();
+        return currentNode;
     }
 
     private JsonNode getListValue(JsonNode payloadJson, String placeholder){
@@ -166,7 +194,7 @@ public class MappingServiceImpl implements MappingService{
         if (payloadJson.has(index)) {
             return payloadJson.get(index);
         } else {
-            return new TextNode("{{" + placeholder + "}}");
+            return new TextNode(placeholder);
         }
     }
 }
