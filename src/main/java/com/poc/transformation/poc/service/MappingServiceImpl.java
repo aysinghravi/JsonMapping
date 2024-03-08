@@ -1,7 +1,6 @@
 package com.poc.transformation.poc.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -12,9 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -122,7 +119,7 @@ public class MappingServiceImpl implements MappingService{
                         int finalI = i;
                         String currentListValue = listKey + ".*";
                         String replacementValue = listKey + "." + finalI;
-                        String resolvedValue = resolvePlaceholder(arrayElement.asText().replace(currentListValue, replacementValue), sourceJson);
+                        JsonNode resolvedValue = resolvePlaceholder(arrayElement.asText().replace(currentListValue, replacementValue), sourceJson);
                         resultArray.add(resolvedValue);
 
                     }
@@ -187,7 +184,7 @@ public class MappingServiceImpl implements MappingService{
                                 JsonNode elementValue = elementEntry.getValue();
                                 log.info("element key: {} element value: {}", elementKey, elementValue);
                                 if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                                    String resolvedValue = resolvePlaceholder(elementValue.asText().replace(currentListValue, replacementValue), sourceJson);
+                                    JsonNode resolvedValue = resolvePlaceholder(elementValue.asText().replace(currentListValue, replacementValue), sourceJson);
                                     tempNode.put(elementKey, resolvedValue);
                                 } else if (elementValue.isArray()) {
                                     log.info("ele val is array");
@@ -211,7 +208,7 @@ public class MappingServiceImpl implements MappingService{
                         String elementKey = elementEntry.getKey();
                         JsonNode elementValue = elementEntry.getValue();
                         if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                            String resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
+                            JsonNode resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
                             processedNode.put(elementKey, resolvedValue);
                         } else {
                             processedNode.set(elementKey, elementValue);
@@ -227,7 +224,7 @@ public class MappingServiceImpl implements MappingService{
         return text.startsWith("{{") && text.endsWith("}}");
     }
 
-    private String resolvePlaceholder(String placeholder, JsonNode sourceJson) {
+    private JsonNode resolvePlaceholder(String placeholder, JsonNode sourceJson) {
         if (placeholder.contains("*")){
             placeholder = placeholder.replace("*", "0");
         }
@@ -246,11 +243,11 @@ public class MappingServiceImpl implements MappingService{
             }
             if (currentNode.isMissingNode()) {
                 log.debug("Node not found: {}", pathSegment);
-                return new TextNode(placeholder ).asText();            }
+                return new TextNode(placeholder );            }
         }
 
         log.info("returning value: {}", currentNode);
-        return currentNode.asText();
+        return currentNode;
     }
 
     private JsonNode getListValue(JsonNode payloadJson, String placeholder){
