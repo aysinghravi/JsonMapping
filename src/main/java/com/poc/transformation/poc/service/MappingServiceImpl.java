@@ -158,10 +158,7 @@ public class MappingServiceImpl implements MappingService{
             log.info("elementg key: {}, element value: {}, oldvalue: {}, new value: {}", elementKey, elementValue, oldValue, replacementValue);
 
             if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                JsonNode resolvedValue = resolvePlaceholder(
-                        elementValue.asText().replace(oldValue, replacementValue),
-                        sourceJson
-                );
+                TextNode resolvedValue = new TextNode(elementValue.asText().replace(oldValue, replacementValue));
                 processedNode.put(elementKey, resolvedValue);
             } else if (elementValue.isArray()) {
                 String stringvalue = returnJsonString(elementValue);
@@ -185,7 +182,7 @@ public class MappingServiceImpl implements MappingService{
             JsonNode elementValue = entry.getValue();
 
             if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                JsonNode resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
+                TextNode resolvedValue = new TextNode(elementValue.asText());
                 processedNode.put(elementKey, resolvedValue);
             } else {
                 processedNode.set(elementKey, elementValue);
