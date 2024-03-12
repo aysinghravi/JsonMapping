@@ -118,13 +118,16 @@ public class MappingServiceImpl implements MappingService{
 
     private String extractListKey(String placeholder) {
         log.info("placeholder here: {}", placeholder);
-        int endIndex = placeholder.indexOf(".*");
-        if (endIndex != -1) {
-            return placeholder.substring(3, endIndex); // Extract substring before .*
-        } else {
-            // Handle case when .* is not found
-            return placeholder.substring(3); // Extract substring after {{$
+        if (placeholder.contains(".*")) {
+            int endIndex = placeholder.indexOf(".*");
+            if (endIndex != -1) {
+                return placeholder.substring(3, endIndex); // Extract substring before .*
+            } else {
+                // Handle case when .* is not found
+                return placeholder.substring(3); // Extract substring after {{$
+            }
         }
+        return null;
     }
 
     private Optional<ArrayNode> processArrayElementWithListKey(JsonNode arrayElement, String listKey, JsonNode sourceJson) {
