@@ -13,6 +13,8 @@ import reactor.core.publisher.Mono;
 
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -77,148 +79,133 @@ public class MappingServiceImpl implements MappingService{
     }
 
     private ArrayNode handleArrayNode(ArrayNode destinationNode, JsonNode sourceJson) {
-        log.info("handling array nodes for node: {}", destinationNode);
         ArrayNode resultArray = objectMapper.createArrayNode();
 
         destinationNode.forEach(arrayElement -> {
             log.info("array element: {}", arrayElement);
-            String listKey = null;
+            String listKey = fetchListKey(arrayElement);
 
-            if (arrayElement.isTextual()) {
-                String placeholder = arrayElement.asText();
-                log.info("placeholder here: {}", placeholder);
-                int endIndex = placeholder.indexOf(".*");
-                if (endIndex != -1) {
-                    listKey = placeholder.substring(3, endIndex); // Extract substring before .*
-                } else {
-                    // Handle case when .* is not found
-                    listKey = placeholder.substring(3); // Extract substring after {{$
-                }
-
-                String[] keys = listKey.split("\\.");
-                log.info("keys: {}", keys);
-                JsonNode listNode = sourceJson;
-
-                for (final String key : keys) {
-                    // This conditional block checks if the next path segment is an array index
-                    if (key.matches("^-?\\d+$")) {
-                        log.info("current index listNode: {}", key);
-                        listNode = getListValue(listNode, key);
-                    } else {
-                        log.info("current listNode: {}", listNode);
-                        listNode = listNode.findPath(key);
-                    }
-//                    if (listNode.isMissingNode()) {
-//                        log.debug("listNode not found: {}", key);
-//                        return new TextNode(key);            }
-                }
-
-                if (listNode != null && listNode.isArray()) {
-                    int listSize = listNode.size();
-                    for (int i = 0; i < listSize; i++) {
-                        int finalI = i;
-                        String currentListValue = listKey + ".*";
-                        String replacementValue = listKey + "." + finalI;
-                        JsonNode resolvedValue = resolvePlaceholder(arrayElement.asText().replace(currentListValue, replacementValue), sourceJson);
-                        resultArray.add(resolvedValue);
-
-                    }
-                } else {
-                    log.error("List node '{}' not found or is not an array in the source JSON.", listKey);
-                }
-
+            if (listKey != null) {
+                processArrayElementWithListKey(arrayElement, listKey, sourceJson)
+                        .ifPresent(resultArray::addAll);
             } else {
-                // Iterate over all fields of the array node element to find the list key
-                Iterator<Map.Entry<String, JsonNode>> fieldsIterator = arrayElement.fields();
-                while (fieldsIterator.hasNext()) {
-                    Map.Entry<String, JsonNode> fieldEntry = fieldsIterator.next();
-                    JsonNode fieldValue = fieldEntry.getValue();
-                    log.info("field value: {}", fieldValue);
-                    if (fieldValue.isTextual() && isPlaceholder(fieldValue.asText())) {
-                        String placeholder = fieldValue.asText();
-                        log.info("placeholder here: {}", placeholder);
-                        int endIndex = placeholder.indexOf(".*");
-                        if (endIndex != -1) {
-                            listKey = placeholder.substring(3, endIndex); // Extract substring before .*
-                        } else {
-                            // Handle case when .* is not found
-                            listKey = placeholder.substring(3); // Extract substring after {{$
-                        }
-                        break; // Exit loop if list key is found
-                    }
-                }
+                processArrayElementWithoutListKey(arrayElement, sourceJson)
+                        .ifPresent(resultArray::add);
+            }
+        });
 
-
-                log.info("listkey: {}", listKey);
-
-                ObjectNode processedNode = objectMapper.createObjectNode();
-
-                if (listKey != null) {
-                    // If list key is found, proceed with fetching the list node from source JSON
-                    String[] keys = listKey.split("\\.");
-                    log.info("keys: {}", keys);
-                    JsonNode listNode = sourceJson;
-
-                    for (final String key : keys) {
-                        // This conditional block checks if the next path segment is an array index
-                        if (key.matches("^-?\\d+$")) {
-                            log.info("current index listNode: {}", key);
-                            listNode = getListValue(listNode, key);
-                        } else {
-                            log.info("current listNode: {}", listNode);
-                            listNode = listNode.findPath(key);
-                        }
-//                    if (listNode.isMissingNode()) {
-//                        log.debug("listNode not found: {}", key);
-//                        return new TextNode(key);            }
-                    }
-                    if (listNode != null ) {
-                        int listSize = listNode.size();
-                        for (int i = 0; i < listSize; i++) {
-                            ObjectNode tempNode = objectMapper.createObjectNode();
-                            int finalI = i;
-                            String currentListValue = listKey + ".*";
-                            String replacementValue = listKey + "." + finalI;
-                            arrayElement.fields().forEachRemaining(elementEntry -> {
-                                String elementKey = elementEntry.getKey();
-                                JsonNode elementValue = elementEntry.getValue();
-                                log.info("element key: {} element value: {}", elementKey, elementValue);
-                                if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                                    JsonNode resolvedValue = resolvePlaceholder(elementValue.asText().replace(currentListValue, replacementValue), sourceJson);
-                                    tempNode.put(elementKey, resolvedValue);
-                                } else if (elementValue.isArray()) {
-                                    log.info("ele val is array");
-                                    String stringvalue = returnJsonString(elementValue);
-                                    stringvalue = stringvalue.replaceAll(Pattern.quote(currentListValue), Matcher.quoteReplacement(replacementValue));
-                                    log.info("string: {}", stringvalue);
-                                    ArrayNode processedArray = handleArrayNode((ArrayNode) returnJsonObject(stringvalue), sourceJson);
-                                    tempNode.set(elementKey, processedArray);
-                                } else {
-                                    tempNode.set(elementKey, elementValue);
-                                }
-                            });
-                            resultArray.add(tempNode);
-                        }
-                    } else {
-                        log.error("List node '{}' not found or is not an array in the source JSON.", listKey);
-                    }
-                } else {
-                    // If list key is null, directly replace placeholders with values from the source JSON
-                    arrayElement.fields().forEachRemaining(elementEntry -> {
-                        String elementKey = elementEntry.getKey();
-                        JsonNode elementValue = elementEntry.getValue();
-                        if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
-                            JsonNode resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
-                            processedNode.put(elementKey, resolvedValue);
-                        } else {
-                            processedNode.set(elementKey, elementValue);
-                        }
-                    });
-                    resultArray.add(processedNode);
-                }
-            }});
         return resultArray;
     }
+
+    private String fetchListKey(JsonNode arrayElement) {
+        log.info("extracting list key from: {}", arrayElement);
+        String listKey = null;
+        if (arrayElement.isTextual() && isPlaceholder(arrayElement.asText())) {
+            listKey = extractListKey(arrayElement.asText());
+        }
+        Iterator<Map.Entry<String, JsonNode>> fieldsIterator = arrayElement.fields();
+        while (fieldsIterator.hasNext()) {
+            Map.Entry<String, JsonNode> fieldEntry = fieldsIterator.next();
+            JsonNode fieldValue = fieldEntry.getValue();
+            log.info("field value: {}", fieldValue);
+            if (fieldValue.isTextual() && isPlaceholder(fieldValue.asText())) {
+                listKey = extractListKey(fieldValue.asText());
+            }
+        }
+        log.info("listkey: {}", listKey);
+        return listKey;
+    }
+
+    private String extractListKey(String placeholder) {
+        log.info("placeholder here: {}", placeholder);
+        int endIndex = placeholder.indexOf(".*");
+        if (endIndex != -1) {
+            return placeholder.substring(3, endIndex); // Extract substring before .*
+        } else {
+            // Handle case when .* is not found
+            return placeholder.substring(3); // Extract substring after {{$
+        }
+    }
+
+    private Optional<ArrayNode> processArrayElementWithListKey(JsonNode arrayElement, String listKey, JsonNode sourceJson) {
+        JsonNode listNode = getListNode(sourceJson, listKey);
+        log.info("list node: {}",listNode);
+        if (listNode != null && listNode.isArray()) {
+            ArrayNode processedElements = objectMapper.createArrayNode();
+            AtomicInteger finalI = new AtomicInteger(-1);
+            listNode.forEach(element -> {
+                finalI.set(finalI.get() + 1);
+                processArrayElement(arrayElement, sourceJson, listKey, finalI)
+                        .ifPresent(processedElements::add);
+            });
+            return Optional.of(processedElements);
+        } else {
+            log.error("List node '{}' not found or is not an array in the source JSON.", listKey);
+            return Optional.empty();
+        }
+    }
+
+    private Optional<ObjectNode> processArrayElement(JsonNode arrayElement, JsonNode sourceJson, String listKey, AtomicInteger finalI) {
+        ObjectNode processedNode = objectMapper.createObjectNode();
+
+        arrayElement.fields().forEachRemaining(entry -> {
+            String elementKey = entry.getKey();
+            JsonNode elementValue = entry.getValue();
+            String oldValue = listKey + ".*";
+            String replacementValue = listKey + "." + finalI;
+            log.info("elementg key: {}, element value: {}, oldvalue: {}, new value: {}", elementKey, elementValue, oldValue, replacementValue);
+
+            if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
+                JsonNode resolvedValue = resolvePlaceholder(
+                        elementValue.asText().replace(oldValue, replacementValue),
+                        sourceJson
+                );
+                processedNode.put(elementKey, resolvedValue);
+            } else if (elementValue.isArray()) {
+                String stringvalue = returnJsonString(elementValue);
+                stringvalue = stringvalue.replaceAll(Pattern.quote(oldValue), Matcher.quoteReplacement(replacementValue));
+                log.info("string: {}", stringvalue);
+                ArrayNode processedArray = handleArrayNode((ArrayNode) returnJsonObject(stringvalue), sourceJson);
+                processedNode.set(elementKey, processedArray);
+            } else {
+                processedNode.set(elementKey, elementValue);
+            }
+        });
+
+        return Optional.of(processedNode);
+    }
+
+    private Optional<JsonNode> processArrayElementWithoutListKey(JsonNode arrayElement, JsonNode sourceJson) {
+        ObjectNode processedNode = objectMapper.createObjectNode();
+
+        arrayElement.fields().forEachRemaining(entry -> {
+            String elementKey = entry.getKey();
+            JsonNode elementValue = entry.getValue();
+
+            if (elementValue.isTextual() && isPlaceholder(elementValue.asText())) {
+                JsonNode resolvedValue = resolvePlaceholder(elementValue.asText(), sourceJson);
+                processedNode.put(elementKey, resolvedValue);
+            } else {
+                processedNode.set(elementKey, elementValue);
+            }
+        });
+
+        return Optional.of(processedNode);
+    }
+
+    private JsonNode getListNode(JsonNode sourceJson, String listKey) {
+        String[] keys = listKey.split("\\.");
+        JsonNode listNode = sourceJson;
+        for (String key : keys) {
+            if (key.matches("^-?\\d+$")) {
+                listNode = getListValue(listNode, key);
+            } else {
+                listNode = listNode.findPath(key);
+            }
+        }
+        return listNode;
+    }
+
 
     private boolean isPlaceholder(String text) {
         return text.startsWith("{{") && text.endsWith("}}");
